@@ -1,0 +1,19 @@
+﻿# cds hyperparameter
+use_next_state: True 
+use_last_action: True # actor use last action. (only cds : True)
+
+embadding_dim: 512 # : test setting
+gamma: 0.99 # discount factor
+# HyperParameter - Transformer
+num_heads: 2 # Critic - Transformer 모델의 헤드 수
+embed_dim: 64
+
+# Unique HyperParameter - CDS
+num_kernel: 4
+mixing_embed_dim: 32
+hypernet_embed: 64
+adv_hypernet_embed: 64
+attend_reg_coef: 0.001 # attention regulation coefficient
+beta1: 2 # intrinsic reward ratio
+beta2: 1 # pi diverge ratio
+beta: 0.3 # default cds intrinsic rewards ratio

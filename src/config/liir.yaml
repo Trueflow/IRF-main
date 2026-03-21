@@ -1,0 +1,11 @@
+﻿# liir hyperparameter
+use_next_state: False 
+use_last_action: False # actor use last action
+
+embadding_dim: 512 # Linear Layer Dim
+td_lambda: 0.9
+gamma: 0.99 # discount factor
+
+# Unique Hyperparameter - liir
+vt_coef: 1.0 # v_ex_loss ratio of intrinsic_loss
+_lambda: 0.01 # r_in ratio

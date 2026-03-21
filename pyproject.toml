@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "irf-main"
+version = "0.1.0"
+description = "IRF experiment codebase with a pre-built Unity environment"
+readme = "README.md"
+requires-python = "==3.10.12"
+dependencies = [
+    "mlagents==1.1.0",
+    "mlagents-envs==1.1.0",
+    "python-box==7.3.2",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+package = true

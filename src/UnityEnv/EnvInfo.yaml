@@ -1,0 +1,105 @@
+MARLvsRSA:
+  i3a2b1_r: # infantry 3, armored 2, tank 1
+    state_size: 105  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 14
+    num_agents: 6
+    unit_states_offset: 9
+    unit_dim: 8
+  i3a2b1_r_3: # infantry 3, armored 2, tank 1
+    state_size: 105  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 14
+    num_agents: 6
+    unit_states_offset: 9
+    unit_dim: 8
+  i3a2b1: # infantry 3, armored 2, tank 1
+    state_size: 105  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 14
+    num_agents: 6
+    unit_states_offset: 9
+    unit_dim: 8
+  i2a1: # infantry 2, armored 1
+    state_size: 57 # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97 # ray_state + vec_state
+    ray_obs: 90 # (1+2*ray_per_direction) * (Detectable_Tags + 2)
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 11
+    num_agents: 3
+  i3a3b3: # infantry 3, armored 2, tank 1
+    state_size: 153  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 17
+    num_agents: 9
+
+MARLvsMARL:
+  i2a1: # infantry 2, armored 1
+    state_size: 57 # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97 # ray_state + vec_state
+    ray_obs: 90 # (1+2*ray_per_direction) * (Detectable_Tags + 2)
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 11
+    num_agents: 3
+  i3a2b1: # infantry 3, armored 2, tank 1
+    state_size: 105  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 14
+    num_agents: 6
+    unit_states_offset: 9
+    unit_dim: 8
+  i3a2b1_r: # infantry 3, armored 2, tank 1
+    state_size: 105  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 14
+    num_agents: 6
+    unit_states_offset: 9
+    unit_dim: 8
+  i3a2b1_r_3: # infantry 3, armored 2, tank 1
+    state_size: 105  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 14
+    num_agents: 6
+    unit_states_offset: 9
+    unit_dim: 8
+  i3a3b3: # infantry 3, armored 2, tank 1
+    state_size: 153  # 9 + 8 * (num_agents + num_enemy) 
+    obs_size: 97
+    ray_obs: 90
+    vec_obs: 7 # fixed (myinfo)
+    RAY_IDX: 0
+    VEC_IDX: 1
+    action_size: 17
+    num_agents: 9

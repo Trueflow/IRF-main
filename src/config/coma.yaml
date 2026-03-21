@@ -1,0 +1,7 @@
+﻿# coma hyperparameter
+use_next_state: False 
+use_last_action: False # actor use last action
+
+embadding_dim: 512 # Linear Layer Dim
+td_lambda: 0.9
+gamma: 0.99 # discount factor

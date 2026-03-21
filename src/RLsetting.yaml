@@ -1,0 +1,32 @@
+# -------- RL Setting Parameters --------
+LearningControl:
+  env: 'i3a2b1'
+  training: False
+  run_step: 1500000
+  test_step: 1000000 # max test step
+  print_interval: 1 # episode counts
+  save_interval: 5 # model 저장 에피소드 수
+# ------ Game & learner Parameters ------ [Blue(team0), Red(team1)] Learning Sequence Setting
+Framework: ["marl", "marl"] # ["marl", "rsa"] (only team1) or ["marl", "marl"]
+Algorithm: ["coma","liir"] # algorithm - liir, coma, poca(ma-poca)
+train_mode: [False, False] # [team0, team1]
+load_model: [True, True] # [team0, team1]
+load_path: 
+ - 'C:\Users\user\Desktop\IRF_main\src\results\coma\team0MARL-coma' #team0
+ - 'C:\Users\user\Desktop\IRF_main\src\results\irf\team0MARL-liir' #team1
+# HyperParameter - All
+eps_greedy: # marltest - start 0.1, finish 0.01, num_episode 50 / rsa - start 0.3, finish 0.01, num_episode 150
+  start: 0.3 # epsilon-greedy shcedule
+  finish: 0.01
+  num_episode: 200
+target_update_interval: 3 # critic target network update interval
+grad_norm_clip: 10 # gradient clipping
+gamma: 0.99 # discount factor. emc (vdn:0.9)
+optimiser: "Adam"
+optimiser_param: # Adam, RMSprop
+  Adam:
+    lr: 1.5e-4
+  RMSprop:
+    lr: 1.0e-4
+    eps: 0.1
+    alpha: 0.99
