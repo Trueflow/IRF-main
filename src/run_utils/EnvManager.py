@@ -47,34 +47,10 @@ def InitialSetting(team, info, env, save_path, load_path):
             # print(f"[Observation] Team0 : ray {ray_size} / vec {vec_size}")
             del dec, term, algorithm, args
             torch.cuda.empty_cache()
-    elif info[0]=="hrl": # hrl [frame, upper, lower]
-        upperdec, upperterm = env.get_steps(info[-2]["behavior"])
-        info[-2]["upper_id"] = upperdec.agent_id[0]
-        info[-2]["agent"] = A_Registry[info[-2]["algorithm"]](info[-2]["args"], info[-2]["actor"], save_path+f"/team{team}Upper", load_path+f"/team{team}Upper")
-        info[-2]["WriteScheme"] = WriteSchemeInfo(info[-2]["algorithm"], info[-2]["args"], team)
-
-        lowerdec, lowerterm = env.get_steps(info[-1]["behavior"])
-        algorithm, args = info[-1]["algorithm"], info[-1]["args"]
-        # position= lowerdec.obs[args.VEC_OBS][:,-2]
-
-        info[-1]["agents_id"] = [id for id in lowerdec.agent_id]
-        info[-1]["actor"] = [RNNActor(args, args.obs_size, args.action_size) for i in range(0, args.num_agents)]
-        info[-1]["hidden_state"] = [RNNActor(args, args.obs_size, args.action_size).init_hidden() for i in range(0,args.num_agents)]
-        info[-1]["epsilon_schedule"] = epsilon_schedule(args.eps_greedy)
-        info[-1]["epsilon_schedule"].init_schedule(args.train_mode)
-        info[-1]["WriteScheme"] = WriteSchemeInfo(info[-1]["algorithm"], info[-1]["args"], team)
-        info[-1]["agent"]= A_Registry[algorithm](args, info[-1]["actor"], args.eps_greedy.start, save_path+f"/team{team}Lower-{algorithm}", load_path+f"/team{team}Lower")
-        info[-1]["agent"].SetOptimiser(info[1])
-        del upperdec, upperterm, lowerdec, lowerterm, algorithm
-        torch.cuda.empty_cache()
 
 def episodeEnd(step, startStep, TeamInfo, ENVargs, win_count):
     for team, info in TeamInfo.items():
         args = info[1]
-        # if info[0]=="hrl":
-        #     upper_scheme = info[-2]["WriteScheme"]
-        #     upper_scheme["episode"] +=1
-        #     upper_scheme["scores"].append(np.sum(upper_scheme["score"], axis=0))
         scheme = info[-1]["WriteScheme"]
         scheme["EpisodeInfo"]["episode_length"].append(step - startStep)
         scheme["episode"] +=1
@@ -92,7 +68,6 @@ def episodeEnd(step, startStep, TeamInfo, ENVargs, win_count):
 
         if args.train_mode and scheme["episode"] % ENVargs.save_interval==0:
             info[-1]["agent"].save_model() # lower&marl
-            if info[0]=="hrl": info[-2]["agent"].save_model() # upper
         del args
     torch.cuda.empty_cache()
 

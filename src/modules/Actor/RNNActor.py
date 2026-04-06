@@ -1,6 +1,5 @@
 import torch.nn
 import torch.nn.functional as F
-from memory_profiler import profile
 
 class RNNActor(torch.nn.Module):
     def __init__(self, args, input_size, action_size):

@@ -3,7 +3,6 @@ from run_utils.mlagents_trans import (
     process_rewards, process_next_state, process_done, process_state)
 
 from modules.action_selector import action_selector_registry as action_selector
-import run_utils.upper as upper
 
 import numpy as np
 import torch.cuda

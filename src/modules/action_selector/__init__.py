@@ -1,5 +1,4 @@
 ﻿from .action_selector import single_actor_selector, multi_actor_selector
-from .upper_actor import upper_action_selector
 
 action_selector_registry = {}
 
