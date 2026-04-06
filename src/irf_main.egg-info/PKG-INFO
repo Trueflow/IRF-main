@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: irf-main
-Version: 0.1.0
-Summary: IRF experiment codebase with a pre-built Unity environment
-Requires-Python: ==3.10.12
-Description-Content-Type: text/markdown
-Requires-Dist: mlagents==1.1.0
-Requires-Dist: mlagents-envs==1.1.0
-Requires-Dist: python-box==7.3.2
