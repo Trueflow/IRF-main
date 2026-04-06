@@ -1,28 +1,30 @@
 # -------- RL Setting Parameters --------
 LearningControl:
-  env: 'i3a2b1'
-  training: False
-  run_step: 1500000
+  env: 'i3a3b3'
+  training: True
+  run_step: 2000000
   test_step: 1000000 # max test step
   print_interval: 1 # episode counts
-  save_interval: 5 # model 저장 에피소드 수
+  save_interval: 5 # model checkpoint save episode interval
 # ------ Game & learner Parameters ------ [Blue(team0), Red(team1)] Learning Sequence Setting
-Framework: ["marl", "marl"] # ["marl", "rsa"] (only team1) or ["marl", "marl"]
-Algorithm: ["coma","liir"] # algorithm - liir, coma, poca(ma-poca)
-train_mode: [False, False] # [team0, team1]
-load_model: [True, True] # [team0, team1]
+Framework: ["marl", "rsa"] # Train - ["marl", "rsa"] / Comparative Test - ["marl", "marl"]
+Algorithm: ["irf","irf"] # algorithm - irf, coma, poca(ma-poca), cds, emc
+train_mode: [True, False] # [team0, team1]
+load_model: [False, False] # [team0, team1]
 load_path: 
- - 'C:\Users\user\Desktop\IRF_main\src\results\coma\team0MARL-coma' #team0
- - 'C:\Users\user\Desktop\IRF_main\src\results\irf\team0MARL-liir' #team1
-# HyperParameter - All
-eps_greedy: # marltest - start 0.1, finish 0.01, num_episode 50 / rsa - start 0.3, finish 0.01, num_episode 150
+ - 'path-team0' #team[0]
+ - 'path-team1' #team[1]
+# recommend absolute path (trained model in hugging face : Trueflow/irf-paper-artifacts)
+
+# Training HyperParameter
+eps_greedy: #  start 0.3, finish 0.01, num_episode 150~200
   start: 0.3 # epsilon-greedy shcedule
   finish: 0.01
   num_episode: 200
 target_update_interval: 3 # critic target network update interval
 grad_norm_clip: 10 # gradient clipping
 gamma: 0.99 # discount factor. emc (vdn:0.9)
-optimiser: "Adam"
+optimiser: "Adam" # recommend Adam
 optimiser_param: # Adam, RMSprop
   Adam:
     lr: 1.5e-4

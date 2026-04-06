@@ -81,7 +81,7 @@ After the environment setup is complete, run:
 uv run python src/main.py
 ```
 
-This command runs the default **LIIR vs. RSA** setting.
+This command runs the default **MARL(IRF) vs. RSA** setting.
 
 ### 2.2. Available Frameworks and Algorithms
 
@@ -100,7 +100,7 @@ The following frameworks and algorithms are currently available.
 
 #### Algorithms
 
-* `liir`: Learning Individual Intrinsic Reward in MARL (LIIR)
+* `irf`: Intrinsic Reward Function in MARL - based on Learning Individual Intrinsic Reward (LIIR)
 * `coma`: Counterfactual Multi-Agent Policy Gradients (COMA)
 * `poca`: Multi-Agent Posthumous Credit Assignment (MA-POCA)
 * `cds`: Celebrating Diversity in Shared Multi-Agent Reinforcement Learning (CDS)

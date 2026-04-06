@@ -3,15 +3,14 @@ import copy
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from modules.Critic.LIIRcritic import LIIRcritic
+from modules.Critic.IRFcritic import IRFcritic
 from Utils.calculate_pi import decentralized_pi
 from datetime import datetime
 
-# MAPOCAAgent 클래스 -> MAPOCA 알고리즘을 위한 다양한 함수 정의 
-class LIIRagent:
+class IRFagent:
     def __init__(self, args, actor, epsilon, save_path, load_path):  
         self.args = args
-        self.algorithm = "liir"
+        self.algorithm = "irf"
         self.n_agents = args.num_agents
         self.state_size = args.state_size
         self.n_actions = args.action_size
@@ -25,20 +24,18 @@ class LIIRagent:
 
         self._lambda = args._lambda
         self.epsilon = epsilon
-        # self.mu = args.mu
+        
         self.td_lambda = args.td_lambda
         self.gamma = args.gamma
         self.vt_coef = args.vt_coef
 
-        self.critic = LIIRcritic(args).to(self.device)
+        self.critic = IRFcritic(args).to(self.device)
         self.target_critic = copy.deepcopy(self.critic)   
 
-        #self.actor = RNNActor(args)
         self.actor = actor
         self.policy_old = copy.deepcopy(self.actor)
         self.policy_new = copy.deepcopy(self.actor)
 
-        #self.rnn_params = list(self.actor.parameters())
         self.actor_param = self.actor.parameters()
         self.critic_params = list(self.critic.fc1.parameters())+list(self.critic.fc2.parameters())+list(self.critic.v_mix.parameters())
         self.intrinsic_params = list(self.critic.r_in.parameters()) + list(self.critic.v_ex.parameters())
@@ -63,20 +60,17 @@ class LIIRagent:
             self.intrinsic_optimiser.load_state_dict(checkpoint["intrinsic_optimizer"])
             print(f"... Load Model from {self.load_path}/ckpt complete ...")
     
-    # 리플레이 메모리에 데이터 추가 (상태, 행동, 그룹보상, 개인보상, 게임 종료 여부, 에이전트 활성 여부)
     def append_sample(self, states, obs, actions, actionmask, Reward, done, actives):
             self.memory.append((states, obs, actions, actionmask, Reward, done, actives))
 
     def memoryClear(self):
         self.memory.clear()
              
-    # 학습 수행
-    # @profile
     def train_model(self):
         self.actor.train()
         self.critic.train()
 
-        # 메모리에서 필요한 인자 받아오기
+        # extract episode data from memory
         states      = np.stack([m[0] for m in self.memory], axis=0)
         obs         = np.stack([m[1] for m in self.memory], axis=0)
         actions     = np.stack([m[2] for m in self.memory], axis=0)
@@ -89,19 +83,17 @@ class LIIRagent:
 
         states, obs, actions, actionmask, Reward, done, actives = map(lambda x: torch.FloatTensor(x).to(self.device),[states, obs, actions, actionmask, Reward, done, actives])
         
-        # 학습 이터레이션 시작
-        # print(f"state : {states.shape} \n actions : {actions.shape} \n \
-        #       reward : {reward.shape} \n done : {done.shape} \n actives : {actives.shape}")
         torch.autograd.set_detect_anomaly(True)
         
-        # 1. critic-loss 계산
+        # 1. calculate critic-loss 
         target_ex, q_vals, target_mix, r_in, v_ex = self.train_critic(states, obs, actions, Reward, done)
-        # 2. actor-loss 계산 (decentralized)
+        # 2. calculate actor-loss 
         actor_loss, log_pi_taken = self.train_actor(obs, actions, actionmask, actives, q_vals, target_mix.clone())
         
-        # 3. intrinsic-loss 계산 (pi-old pi-new 비교)
+        # 3. calculate intrinsic-loss (compare pi-old and pi-new)
         intrinsic_loss = self.train_intrinsic(obs, actions, actionmask, actives, target_mix, target_ex, log_pi_taken, v_ex)    
 
+        # update : intrinsic -> critic
         self.intrinsic_optimiser.zero_grad()
         intrinsic_loss.backward(retain_graph=True)
         torch.nn.utils.clip_grad_norm_(self.intrinsic_params, self.grad_norm_clip)
@@ -119,13 +111,10 @@ class LIIRagent:
             critic_loss.append(loss.item())
         del q_t, targets_t, loss
 
-
         self.policy_old.load_state_dict(self.actor.state_dict())
 
         if (self.critic_training_interval+1) % self.target_update_interval == 0:
             self.target_critic.load_state_dict(self.critic.state_dict())
-
-        # r_in_= torch.mean(r_in.detach(), dim=0)
 
         learn_scheme = {
             "r_in":r_in.reshape(self.n_agents, -1).detach(),
@@ -138,7 +127,6 @@ class LIIRagent:
         self.critic_training_interval+=1
         return learn_scheme
     
-    # @profile
     def train_critic(self, states, obs, actions, Reward, done):
         target_vals, target_val_v_ex, _ = self.target_critic(states, obs, actions)
         q, v_ex, r_explore = self.critic(states, obs, actions)
@@ -153,8 +141,8 @@ class LIIRagent:
         
         ret = torch.zeros(target_vals.shape[0]+1, target_vals.shape[1]).to(self.device)
         ret_ex = torch.zeros(target_val_v_ex.shape[0]+1, target_val_v_ex.shape[1]).to(self.device)
-        ret[-1] = target_vals[-1]*(1 - torch.sum(done, dim=0)) # 마지막 값만 설정
-        ret_ex[-1]= target_val_v_ex[-1]*(1 - torch.sum(done, dim=0)) # 마지막 값만 설정
+        ret[-1] = target_vals[-1]*(1 - torch.sum(done, dim=0)) # set last value as 0
+        ret_ex[-1]= target_val_v_ex[-1]*(1 - torch.sum(done, dim=0)) # set last value as 0
         # Backwards  recursive  update  of the "forward  view"
         with torch.no_grad():
             for t in reversed(range(ret.shape[0]-2)):  
@@ -182,7 +170,7 @@ class LIIRagent:
             advantage = advantage - advantage.mean()
         else:
             advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
-        # 원본에서 변경된 부분: 살아있는 에이전트만 기준 - 실제로 계산된 loss만 기준으로 함)    
+
         actor_loss = - (advantage * log_pi_taken.squeeze(-1)).sum() / actives.sum()
         self.actor_optimiser.zero_grad()
         actor_loss.backward()
@@ -193,9 +181,9 @@ class LIIRagent:
         torch.cuda.empty_cache()
         return actor_loss_, log_pi_taken.clone()
     
-    # @profile
+
     def train_intrinsic(self, obs, actions, actionmask, actives, target_mix, target_ex, log_pi_taken, v_ex):
-        # 3.1 v_ex 관련 (v_ex_loss, adv_ex)
+        # 3.1 v_ex (v_ex_loss, adv_ex)
         v_ex_loss = F.mse_loss(v_ex, target_ex)
         adv_ex = (target_ex - v_ex.clone().detach()).detach()
         std_adv_ex = adv_ex.std()
@@ -203,10 +191,10 @@ class LIIRagent:
             adv_ex = adv_ex - adv_ex.mean()
         else:
             adv_ex = (adv_ex - adv_ex.mean()) / (adv_ex.std() + 1e-8)
-        # adv_ex = adv_ex.squeeze(0)
 
         log_pi_taken_old = decentralized_pi(self.policy_old, obs, actions, actionmask, actives, self.args, self.epsilon, training=False)
         log_pi_taken_old = log_pi_taken_old * actives.squeeze(-1)
+
         # 3.2.2. pg2 : new pi theta (policy_new)
         with torch.no_grad():
             self.policy_new.load_state_dict(self.actor.state_dict()) # update policy_new to new params
@@ -216,20 +204,20 @@ class LIIRagent:
         neglogpac_new = log_pi_taken_new.sum(-1)
         pi2 = log_pi_taken.reshape(-1,self.n_agents).sum(-1)
         ratio_new = torch.exp(neglogpac_new - pi2)
+
         # 3.2.3 gradient for pg1 and 2
         pg_loss1 = log_pi_taken_old.view(-1,1).sum() / actives.sum()
         pg_loss2 = (adv_ex.view(-1) * ratio_new).sum() / actives.sum()
-        # print(pg_loss2)
 
         self.policy_old.zero_grad()
         pg_loss1_grad = torch.autograd.grad(pg_loss1, self.policy_old.parameters())
         self.policy_new.zero_grad()
         pg_loss2_grad = torch.autograd.grad(pg_loss2, self.policy_new.parameters())
+
         # 3.2.4 calculate pg_ex_loss
         grad_total = 0
         for grad1, grad2 in zip(pg_loss1_grad, pg_loss2_grad):
             grad_total += (grad1 * grad2).sum()
-            # grad_total_ = grad_total.clone()
         grad_total = grad_total.detach().item()
         target_mix_ = target_mix.reshape(obs.shape[0], -1, self.n_agents)
         pg_ex_loss = (grad_total * target_mix_).mean()
@@ -240,20 +228,14 @@ class LIIRagent:
         torch.cuda.empty_cache()
         return intrinsic_loss
     
-    
-    # 학습 기록
-    # @profile
+    # write train summary
     def write_scheme(self, scheme, learn_scheme, args):
         scheme["critic_losses"].append(np.mean(learn_scheme["critic_loss"])) # np.mean은 임시방편
         scheme["actor_losses"].append(learn_scheme["actor_loss"])
         scheme["intrinsic_losses"].append(learn_scheme["intrinsic_loss"])
         for i in range(0,args.num_agents):
-            # scheme["intrinsic_losses"][i].append(learn_scheme["intrinsic_loss"][i])
             scheme["r_in_list"].append(learn_scheme["r_in"][i])
-            # scheme["r_mix_list"][i].append(r_mix_.item())  
-        # UpperAgent 학습 시퀀스도 추가할 예정 
     
-    # @profile
     def write_summary(self, scheme, step, ENVargs, win_rate):
         episode, team, ep_length, interval = scheme["episode"], scheme["team"], scheme["EpisodeInfo"]["episode_length"], ENVargs.print_interval
         total_episode = np.sum(ep_length)
@@ -261,7 +243,6 @@ class LIIRagent:
         current_time = datetime.now().strftime('%m-%d %H:%M:%S')
         if self.args.train_mode==True:
             mean_r_in = [torch.mean(scheme["EpisodeInfo"]["r_in_list"][i]).item()/interval for i in range(0,self.n_agents)]
-            # mean_r_mix = [np.mean(r_mix)/interval for r_mix in scheme["r_mix_list"]]
             mean_critic_loss = np.mean(scheme["EpisodeInfo"]["critic_losses"]) # if len(scheme["critic_losses"]) > 0 else 0
             mean_actor_loss = np.mean(scheme["EpisodeInfo"]["actor_losses"])
             mean_intrinsic_loss = np.mean(scheme["EpisodeInfo"]["intrinsic_losses"]) # if len(scheme["intrinsic_losses"]) > 0 else 0        
@@ -281,9 +262,6 @@ class LIIRagent:
             self.writer.add_scalar("model/intrinsic_loss", mean_intrinsic_loss, episode)
             scheme["EpisodeInfo"].clear()
             scheme["EpisodeInfo"]["critic_losses"], scheme["EpisodeInfo"]["actor_losses"], scheme["EpisodeInfo"]["intrinsic_losses"], scheme["EpisodeInfo"]["r_in_list"] = [], [], [], []
-            # for i in range(0, self.num_agents):
-            #     for epstep in range(0, scheme["EpisodeInfo"]["r_in_list"][i].shape[0]):
-            #         self.writer.add_scalar(f"reward_intrinsic/{i+1}", scheme["EpisodeInfo"]["r_in_list"][i][epstep], startStep+epstep)
             del r_in_
         else:
             print(" ")
@@ -296,10 +274,6 @@ class LIIRagent:
 
         scheme["EpisodeInfo"]["episode_length"], scheme["EpisodeInfo"]["scores"] = [], []
 
-        # del mean_r_ex, mean_r_in, mean_actor_loss, mean_critic_loss, mean_intrinsic_loss, ep_length, r_in_, total_episode
-        # torch.cuda.empty_cache()
-    # 네트워크 모델 저장
-    
     def save_model(self):
         print(" ")
         print(f"... Save Model to {self.save_path}/ckpt ...")

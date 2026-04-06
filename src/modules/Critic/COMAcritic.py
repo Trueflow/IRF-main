@@ -1,4 +1,3 @@
-# liir Critic (https://github.com/yalidu/liir/blob/master/src/modules/critics/liir.py)
 import torch
 import torch.nn
 import torch.nn.functional as F
@@ -22,7 +21,7 @@ class COMAcritic(torch.nn.Module):
         # nn.Linear(input_size, output_size)
         self.fc1 = torch.nn.Linear(self.input_shape, self.embadding_dim)
         self.fc2 = torch.nn.Linear(self.embadding_dim, self.embadding_dim)
-        self.fc3 = torch.nn.Linear(self.embadding_dim, self.n_actions) # r_in layer     
+        self.fc3 = torch.nn.Linear(self.embadding_dim, self.n_actions)    
     
     def forward(self, states, obs, actions, t=None):
         torch.autograd.set_detect_anomaly(True)

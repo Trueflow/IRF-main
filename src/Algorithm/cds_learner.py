@@ -53,7 +53,6 @@ class CDSagent:
     # use only team reward
     def append_sample(self, states, obs, actions, actionmask, reward, states_next, obs_next, done, actives):
         self.memory.append((states, obs, actions, actionmask, reward, states_next, obs_next, done, actives))
-        # 원본 : (batch-size, seq_length, n_agent, shape) 
     
     def memoryClear(self):
         self.memory.clear()
@@ -89,22 +88,18 @@ class CDSagent:
         terminated   = np.stack([m[7] for m in self.memory], axis=0) # done
         actives     = np.stack([m[8] for m in self.memory], axis=0) 
         self.memoryClear()
-        # cds에 맞추기 위해 batch차원 추가
+        # add dummy dimension to match original dimension
         states, obs, actions, avail_actions, rewards, terminated, actives, states_next, obs_next = \
             map(lambda x: th.FloatTensor(x).to(self.device).unsqueeze(0), 
             [states, obs, actions, avail_actions, rewards, terminated, actives, states_next, obs_next])
         
-        # mask = batch["filled"][:, :-1].float() <<< step 맞추기 용도: 패딩된 부분 - 0 / 실제 타임스텝 - 1
-        # mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
         actions_onehot = F.one_hot(actions.long(),num_classes=self.n_actions).squeeze(-2)
         last_actions_onehot = th.cat([th.zeros_like(actions_onehot[:, 0].unsqueeze(1)), actions_onehot[:,:-1]], dim=1)  # last_actions
 
-        hidden_states = mac.init_hidden() # hidden state도 3차원
+        hidden_states = mac.init_hidden() # dimension : 3
         initial_hidden = hidden_states.clone().detach()
-        # initial_hidden = initial_hidden.reshape(-1, initial_hidden.shape[-1]).to(self.device)
-        # input으로 넣을때는 remove batch -> (seq_length, n_agent, input_size) (0,2,1,3)
+
         input_here = th.cat((obs, last_actions_onehot), dim=-1).to(self.device).squeeze(0)
-        # 3차원 까지만 input으로 받기 때문에 squeeze(0), mac_out과 hidden_store에는 추후 unsqueeze 적용
         mac_out, hidden_store = mac.cds_forward(input_here.clone().detach(), initial_hidden.clone().detach())
         hidden_store = hidden_store.unsqueeze(0)
         mac_out = mac_out.unsqueeze(0) #.permute(0, 2, 1, 3)
@@ -143,7 +138,7 @@ class CDSagent:
         
         # Intrinsic
         with th.no_grad():
-            obs_intrinsic = obs.clone().permute(0, 2, 1, 3) # 마지막 step 사용 X
+            obs_intrinsic = obs.clone().permute(0, 2, 1, 3) # not use last step
             obs_intrinsic = obs_intrinsic.reshape(-1, obs_intrinsic.shape[-2], obs_intrinsic.shape[-1])
             eval_h_intrinsic = hidden_store.clone().permute(0, 2, 1, 3)
             eval_h_intrinsic = eval_h_intrinsic.reshape(-1, eval_h_intrinsic.shape[-2], eval_h_intrinsic.shape[-1])
@@ -185,16 +180,10 @@ class CDSagent:
             self.eval_predict_withid.update(intrinsic_input_2[index], next_obs_intrinsic[index], add_id[index])
 
         # Mix
-        #print(f"chosen_action_qvals shape: {chosen_action_qvals.shape}, range: [{chosen_action_qvals.min():.2f}, max_action_qvals shape: {max_action_qvals.shape}")
-        #print(f"states shape: {states.shape}, actions_onehot shape: {actions_onehot.shape}")
-        ans_chosen, q_attend_regs, head_entropies = mixer(chosen_action_qvals, states, is_v=True) # clear
-        ans_adv, _, _ = mixer(chosen_action_qvals, states, actions=actions_onehot, max_q_i=max_action_qvals, is_v=False) # 통과?
+        ans_chosen, q_attend_regs, head_entropies = mixer(chosen_action_qvals, states, is_v=True) 
+        ans_adv, _, _ = mixer(chosen_action_qvals, states, actions=actions_onehot, max_q_i=max_action_qvals, is_v=False) 
         chosen_action_qvals = ans_chosen + ans_adv
-        #print(f"ans_chosen shape: {ans_chosen.shape}, range: [{ans_chosen.min():.2f}, {ans_chosen.max():.2f}]")
-        #print(f"ans_adv shape: {ans_adv.shape}, range: [{ans_adv.min():.2f}, {ans_adv.max():.2f}]")
-        #print(f"chosen_action_qvals (after mix) shape: {chosen_action_qvals.shape}, range: [{chosen_action_qvals.min():.2f}, {chosen_action_qvals.max():.2f}]")
 
-        # state[:, :-1] : current state / state[:, 1:] : next_state
         target_chosen, _, _ = self.target_mixer(target_chosen_qvals, states_next, is_v=True)
         target_adv, _, _ = self.target_mixer(target_chosen_qvals, states_next, actions=cur_max_actions_onehot, max_q_i=target_max_qvals, is_v=False)
         target_max_qvals = target_chosen + target_adv
@@ -204,10 +193,6 @@ class CDSagent:
 
         # Td-error
         td_error = (chosen_action_qvals - targets.detach())
-        #print(f"\n=== Target Debug ===")
-        #print(f"target_max_qvals shape: {target_max_qvals.shape}, range: [{target_max_qvals.min():.2f}, {target_max_qvals.max():.2f}]")
-        #print(f"targets shape: {targets.shape}, range: [{targets.min():.2f}, {targets.max():.2f}]")
-        #print(f"td_error shape: {td_error.shape}, range: [{td_error.min():.2f}, {td_error.max():.2f}]")
 
         # Normal L2 loss, take mean over actual data
         loss = (td_error**2).mean() + q_attend_regs
@@ -236,7 +221,6 @@ class CDSagent:
         self.target_predict_withid.load_state_dict(self.eval_predict_withid.state_dict())
         self.target_predict_withoutid.load_state_dict(self.eval_predict_withoutid.state_dict())
         self.target_mixer.load_state_dict(self.mixer.state_dict())
-        # self.logger.console_logger.info("Updated target network")
 
     def save_model(self):
         print(" ")
@@ -295,9 +279,6 @@ class CDSagent:
             self.writer.add_scalar("model/hit_prob", mean_hit_prob, episode)
             scheme["EpisodeInfo"].clear()
             scheme["EpisodeInfo"]["losses"], scheme["EpisodeInfo"]["hit_prob"], scheme["EpisodeInfo"]["td_error_abs"], scheme["EpisodeInfo"]["intrinsic_rewards"] = [], [], [], []
-            # for i in range(0, self.num_agents):
-            #     for epstep in range(0, scheme["EpisodeInfo"]["r_in_list"][i].shape[0]):
-            #         self.writer.add_scalar(f"reward_intrinsic/{i+1}", scheme["EpisodeInfo"]["r_in_list"][i][epstep], startStep+epstep)
             del r_in_
         else:
             print(" ")

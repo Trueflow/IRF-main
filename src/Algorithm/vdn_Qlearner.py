@@ -4,7 +4,7 @@ import torch.nn.functional as func
 from modules.Actor import REGISTRY as mac_REGISTRY
 import numpy as np
 
-class vdn_QLearner:
+class vdn_QLearner: # intrinsic module of EMC
     def __init__(self, args, actor, save_path, load_path):
         self.args = args
         self.mac = copy.deepcopy(actor)
@@ -42,22 +42,19 @@ class vdn_QLearner:
         self.episode_num+=1
         return intrinsic_rewards, vdn_loss
 
-    # EMC의 Intrinsic Module로 사용하는 경우
+    # EMC - Intrinsic Module
     def subtrain(self, batch, mac, imac=None, timac=None):
         # Get the relevant quantities. batch: self.memory
-        rewards = batch["reward"]#[:, :-1]
-        actions = batch["actions"]#[:, :-1]
-        terminated = batch["terminated"].float()#[:, :-1].float()
-        #mask = batch["filled"][:, :-1].float()
-        #mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
+        rewards = batch["reward"]
+        actions = batch["actions"]
+        terminated = batch["terminated"].float()#
+ 
         avail_actions = batch["avail_actions"]
         batch_size = rewards.size(1)
 
         # Calculate estimated Q-Values
         mac_hidden = mac.init_hidden()
-        #self.predict_mac.init_hidden(batch.batch_size) init hidden은 다 똑같음음
-        #self.target_mac.init_hidden(batch.batch_size)
-        #self.soft_target_mac.init_hidden(batch.batch_size)
+
         target_mac_out, _ = self.target_mac.forward(batch["obs_next"], mac_hidden)
         soft_target_mac_out, _ = self.soft_target_mac.forward(batch["obs_next"], mac_hidden)
 
@@ -99,11 +96,11 @@ class vdn_QLearner:
         mac_out_detach = mac_out.clone().detach()
         mac_out_detach[avail_actions == 0] = -9999999
         cur_max_actions = mac_out_detach[:, 1:].max(dim=3, keepdim=True)[1]
-        # 시점 맞추기 위한 dummy Tensor 추가
+        # add dummy Tensor to match the same dimension
         dummy_action = th.zeros_like(cur_max_actions[:,0].unsqueeze(1)).long()
         next_max_actions = th.cat([cur_max_actions, dummy_action], dim=1)
         target_max_qvals = th.gather(target_mac_out, 3, next_max_actions).squeeze(3)
-        # mixer - sum만 존재
+        # mixer - only have sum
         chosen_action_qvals = th.sum(chosen_action_qvals, dim=2, keepdim=True)
         target_max_qvals = th.sum(target_max_qvals, dim=2, keepdim=True)
 
@@ -121,8 +118,7 @@ class vdn_QLearner:
         loss.backward()
         grad_norm = th.nn.utils.clip_grad_norm_(self.params, self.args.grad_norm_clip)
         self.optimiser.step()
-        # 5000 step 마다 업데이트 -> episode마다 업데이트트
-        # if self.t_env - self.decay_stats_t >= self.args.curiosity_decay_cycle:
+        
         if self.args.curiosity_decay_rate <= 1.0:
             if self.args.curiosity_scale > self.args.curiosity_decay_stop:
                     self.args.curiosity_scale = self.args.curiosity_scale * self.args.curiosity_decay_rate

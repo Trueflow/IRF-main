@@ -5,13 +5,12 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from modules.Critic.POCAcritic import POCAcritic
 from datetime import datetime
-# POCAagent 클래스 -> MA-POCA 알고리즘을 위한 다양한 함수 정의
+
 class POCAagent:
     def __init__(self, args, actor, epsilon, save_path, load_path):
         self.args = args
         self.algorithm = "MA-POCA"
         self.num_agents = args.num_agents
-        # discount_factor = gamma
         self.discount_factor = args.gamma
         self.td_lambda = args.td_lambda
         self.epsilon = epsilon
@@ -24,9 +23,6 @@ class POCAagent:
 
         self.actor = actor
         self.critic = POCAcritic(args).to(self.device)
-        # self.critic = POCAnotrans(args).to(self.device)
-        # POCAnotrans : transofrmer Encoder Layer가 없을떄 성능 보기 위함
-
         self.policy_old = copy.deepcopy(actor)
 
         self.target_training_interval = 0
@@ -35,14 +31,10 @@ class POCAagent:
         self.writer = SummaryWriter(save_path)
     
     def SetOptimiser(self):
-        # 옵티마이저 클래스 동적 로드
         OptimClass = getattr(torch.optim, self.args.optimiser)
-        # 여러 Actor에 대한 옵티마이저 생성 (리스트 형태)
         self.actor_optimiser = OptimClass(self.actor.parameters(), **self.args.optimiser_param)
-        # Critic 옵티마이저 생성
         self.critic_optimiser = OptimClass(self.critic.parameters(), **self.args.optimiser_param)
         
-        # 모델 로드 로직
         if self.args.load_model:
             checkpoint = torch.load(self.load_path + '/ckpt', map_location=self.device)
             self.actor.load_state_dict(checkpoint["actor"])
@@ -50,7 +42,7 @@ class POCAagent:
             self.critic.load_state_dict(checkpoint["critic"])
             self.critic_optimiser.load_state_dict(checkpoint["critic_optimizer"])
             print(f"... Load Model from {self.load_path}/ckpt complete ...")
-    # 네트워크 모델 저장
+    
     def save_model(self):
         print(f"... Save Model to {self.save_path}/ckpt ...")
         obj = {}
@@ -60,15 +52,13 @@ class POCAagent:
         obj["critic_optimiser"] = self.critic_optimiser.state_dict()
         torch.save(obj, self.save_path+'/ckpt')
 
-    # 리플레이 메모리에 데이터 추가 (상태, 행동, 보상, 다음 상태, 게임 종료 여부, 에이전트 활성 여부)
     def append_sample(self, states, obs, actions, actionmask, reward, next_states, next_obs, done, actives):
         self.memory.append((states, obs, actions, actionmask, reward, next_states, next_obs, done, actives))
 
-    # 학습 수행
     def train_model(self):
         self.actor.train()
         self.critic.train()
-
+        # extract episode data from memory
         states      = np.stack([m[0] for m in self.memory], axis=0)
         obs         = np.stack([m[1] for m in self.memory], axis=0)
         actions     = np.stack([m[2] for m in self.memory], axis=0)
@@ -84,49 +74,43 @@ class POCAagent:
         states, obs, actions, actionmask, reward, next_states, done, actives = map(lambda x: torch.FloatTensor(x).to(self.device),
                                                                               [states, obs, actions, actionmask, reward, next_states, done, actives])
 
-        # advantage와 return 계산을 별도 메서드로 분리
         ret, prob_olds = self.compute_advantages_and_returns(states, obs, actions, actives, reward, next_states, done, actionmask)
         seq_length = states.shape[0]
-        # 학습 시작 
+        # Train start
         prob = self.calculate_pi(self.actor, obs, actions, actionmask, training=True) # log_pi
-        # ratio = prob / (prob_old + 1e-7) # 현재 정책 확률과 이전 정책 확률의 비율 계산 (log_pi x)
         ratio = torch.exp(prob - prob_olds)
         q = self.compute_critic_q(states, obs, actions)
-        # 상태-행동 값 계산 (critic의 compute_q 메소드 참고
+
         ret_broadcast = ret.unsqueeze(1).expand(seq_length, self.num_agents, 1)  # (seq_len, num_agents, 1)
-        # ret을 (seq_len, num_agents, 1)로 확장
+
         adv = ret_broadcast - q
         adv_std = adv.std()
         if adv_std<1e-12 or torch.isnan(adv_std):
             n_adv = adv - adv.mean()
         else:
             n_adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-        # advantage 계산
-        surr1 = ratio * n_adv.detach() # 첫 번째 손실 항목 계산
+        
+        surr1 = ratio * n_adv.detach() 
         surr2 = torch.clamp(ratio, min=1-self.clip_eps, max=1+self.clip_eps) * n_adv.detach()
         # 클리핑된 두 번째 손실 항목 계산
-        actor_loss = (- torch.min(surr1, surr2) * actives).sum() / (actives.sum() + 1e-8)  # mean 대신 sum 사용
-        # actor_loss = (-torch.min(surr1, surr2) * active).mean()
-        # 최종 정책 손실 계산 (둘 중 작은 것 선택)
+        actor_loss = (- torch.min(surr1, surr2) * actives).sum() / (actives.sum() + 1e-8)  
 
-        # 정책 네트워크 업데이트
+        # update actor
         self.actor_optimiser.zero_grad()
-        # torch.nn.utils.clip_grad_norm_(self.actors[i].parameters(), self.grad_norm_clip)
-        actor_loss.backward()  # retain_graph=True 추가하여 그래디언트 계산 안정화
+        # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_norm_clip)
+        actor_loss.backward()  
         self.actor_optimiser.step()
         actor_loss_value = actor_loss.item()
 
-
         baseline_loss = torch.mean(adv**2)
-        # 정책 손실 저장 (policy loss)
+        
         del prob, ratio, q, n_adv, surr1, surr2, actor_loss
         torch.cuda.empty_cache()
 
         value = self.critic(states, obs)  # shape: (sequence, 1)
-        # baseline_loss = self.compute_baseline_loss(states, actions, ret)
         critic_loss = F.mse_loss(value, ret).mean() + self.mu * baseline_loss
 
-        # 가치 네트워크 업데이트
+        # update critic
         self.critic_optimiser.zero_grad()
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.grad_norm_clip)
         critic_loss.backward()
@@ -138,11 +122,9 @@ class POCAagent:
         torch.cuda.empty_cache()
         
         learn_scheme = {
-            "actor_loss" : actor_loss_value,  # actors_loss -> actor_loss로 수정
+            "actor_loss" : actor_loss_value,  
             "critic_loss" : critic_loss_value
-            # "critic_loss" : critic_loss
         }
-        
         
         if (self.target_training_interval+1) % self.target_update_interval == 0:
             self.update_policy_old()
@@ -150,30 +132,25 @@ class POCAagent:
         return learn_scheme
 
     def compute_advantages_and_returns(self, states, obs, actions, actives, reward, next_states, done, actionmask):
-        # Advantage 및 Return 값을 계산하는 메서드
-        max_t = states.shape[0]  # 시퀀스 길이
+        max_t = states.shape[0]  # sequence_length
         with torch.no_grad():
             value = self.critic(states, obs)
             next_value = self.critic(next_states, obs)
             delta = reward + ((1 - done) * self.discount_factor * next_value) - value
-            # TD 오차 계산
+
             adv = delta.clone()
-            # TD 오차를 Advantage로 초기화
+            # initialize TD error as advantage
             adv, done = map(lambda x: x.view(max_t, -1).transpose(0,1).contiguous(), [adv, done])
-            # advantage, done(에피소드 종료 여부) n_step 차원으로 변환
-            # adv[-1] += (1 - done[-1]) * self.discount_factor * self.td_lambda
+
             for t in reversed(range(max_t-1)):
                 adv[:,t] += (1 - done[:,t]) * self.discount_factor * self.td_lambda * adv[:,t+1]
-            # advantage를 리턴 값으로 변환
-            adv = adv.transpose(0,1).contiguous().view(-1, 1)
-            # advantage 다시 원래 차원으로 변환 및 정규화화
-            # adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-            ret = adv + value
-            # 최종 리턴값 계산
 
-            # 각 에이전트의 이전 정책 확률 계산
+            adv = adv.transpose(0,1).contiguous().view(-1, 1)
+
+            ret = adv + value
+
             prob_olds = torch.zeros_like(actions)
-            # 이전 정책 확률 저장할 텐서 초기화
+
             pi_old_taken = self.calculate_pi(self.policy_old, obs, actions, actionmask, False) #이전 정책 확률 저장
             prob_olds = pi_old_taken
             del pi_old_taken
@@ -190,24 +167,18 @@ class POCAagent:
         torch.cuda.empty_cache()
         return q_
 
-    # 정책을 통해 행동 결정
+    # calculate log pi
     def calculate_pi(self, policy, obs, actions, actionmask, training=False):
-        policy.flattenParameters() # 네트워크 파라미터 평탄화
+        policy.flattenParameters() 
         hidden_state = policy.init_hidden()
-        
-        # 정책 네트워크 추론
+
         pi, _ = policy.forward(obs, hidden_state)
         
-        # 차원 정리 - 출력 차원 확인 후 필요한 차원만 유지
         if len(pi.shape) == 3:  # (sequence_length, batch_size, action_size)
             pi = pi.squeeze(1)  # (sequence_length, action_size)
 
-        # if training:  # Epsilon-greedy exploration 적용
-        #     epsilon_action_num = pi.size(-1)
-            # 액션마스크로 유효한 행동만 고려
-            # pi = (1-self.epsilon)*pi + actionmask*(self.epsilon/epsilon_action_num)
         masked_pi = pi * actionmask
-        # actionmask 자체를 정규화하여 sum_masked=0인 경우 대체
+        
         sum_masked = masked_pi.sum(dim=-1, keepdim=True)
         mask_normalized = actionmask / (actionmask.sum(dim=-1, keepdim=True) + 1e-8)
         masked_pi = torch.where(sum_masked == 0, mask_normalized, masked_pi)
@@ -215,8 +186,7 @@ class POCAagent:
         pi = masked_pi / (masked_pi.sum(dim=-1, keepdim=True) + 1e-8)
         pi_taken = torch.gather(pi, dim=-1, index=actions.long())
         log_pi_taken = torch.log(pi_taken + 1e-8)
-        # 비활성 에이전트 처리 변경: pi_active 계산 제거하고 pi_taken 직접 반환
-        # 실제 active/inactive 처리는 loss 계산 시 활성 마스크로 처리
+
         del pi, masked_pi, sum_masked, mask_normalized, pi_taken
         torch.cuda.empty_cache()
         return log_pi_taken
@@ -227,9 +197,8 @@ class POCAagent:
     def write_scheme(self, scheme, learn_scheme, args):
         scheme["critic_losses"].append(learn_scheme["critic_loss"])
         scheme["actor_losses"].append(learn_scheme["actor_loss"])
-        # UpperAgent 학습 시퀀스도 추가할 예정 
 
-    # 학습 기록
+    # write train summary
     def write_summary(self, scheme, step, ENVargs, win_rate=0):
         episode, team, ep_length, interval = scheme["episode"], scheme["team"], scheme["EpisodeInfo"]["episode_length"], ENVargs.print_interval
         total_episode, total_score = np.sum(ep_length), np.sum(scheme["EpisodeInfo"]["scores"])
@@ -257,9 +226,5 @@ class POCAagent:
         scheme["EpisodeInfo"]["scores"], scheme["EpisodeInfo"]["episode_length"]= [],[]
         
     def memoryClear(self):
-        """
-        리플레이 메모리를 초기화하는 메서드
-        에피소드 종료나 학습 종료 시 호출됨
-        """
         self.memory.clear()
         torch.cuda.empty_cache()

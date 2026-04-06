@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 from datetime import datetime
 
-#from modules.Critic.episodic_memory_buffer import Episodic_memory_buffer
+# from modules.Critic.episodic_memory_buffer import Episodic_memory_buffer
 from .vdn_Qlearner import vdn_QLearner
 from modules.mixer.mixer import dmaq_Mixer # dmaq_qatten.py
 
@@ -32,7 +32,7 @@ class EMCagent:
         self.episode_num = 0
         self.n_actions = self.args.action_size
         self.memory = list()
-        self.ec_buffer = None# Episodic_memory_buffer() if args.use_emdqn else None
+        self.ec_buffer = None # Episodic_memory_buffer() if args.use_emdqn else None
         self.device=args.device
 
     def SetOptimiser(self):
@@ -45,7 +45,6 @@ class EMCagent:
     # use only team reward
     def append_sample(self, states, obs, actions, actionmask, reward, states_next, obs_next, done, actives):
         self.memory.append((states, obs, actions, actionmask, reward, states_next, obs_next, done, actives))
-        # 원본 : (batch-size, seq_length, n_agent, shape) 
     
     def memoryClear(self):
         self.memory.clear()
@@ -61,7 +60,7 @@ class EMCagent:
             "obs_next":         th.FloatTensor(np.stack([m[6] for m in self.memory], axis=0)).to(self.device).unsqueeze(0),
             "terminated":       th.FloatTensor(np.stack([m[7] for m in self.memory], axis=0)).to(self.device).unsqueeze(0),
             "actives":          th.FloatTensor(np.stack([m[8] for m in self.memory], axis=0)).to(self.device).unsqueeze(0)
-        } # state_next, obs_next : states[:,1:] / obs[:,1:]
+        }
         Batch["actions_onehot"]=F.one_hot(Batch["actions"].long(),num_classes=self.n_actions).squeeze(-2)
         return Batch
 
@@ -71,7 +70,7 @@ class EMCagent:
         learn_scheme = self.sub_train(batch, self.mac, self.mixer, self.optimiser, self.params, vdn_loss, intrinsic_rewards, ec_buffer=self.ec_buffer)
 
         if (self.episode_num+1) % self.args.target_update_interval >= 1.0:
-            self._update_targets(self.ec_buffer)
+            self._update_targets()
         self.episode_num +=1
         self.memoryClear()
         th.cuda.empty_cache()
@@ -79,13 +78,11 @@ class EMCagent:
 
     def sub_train(self, batch, mac, mixer, optimiser, params, vdn_loss, intrinsic_rewards,ec_buffer=None):
         # Get the relevant quantities, do not remove last dim
-        rewards = batch["reward"]#[:, :-1]
-        actions = batch["actions"]#[:, :-1]
-        terminated = batch["terminated"].float()#[:, :-1].float()
-        #mask = batch["filled"][:, :-1].float()
-        #mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
+        rewards = batch["reward"]
+        actions = batch["actions"]
+        terminated = batch["terminated"].float()
         avail_actions = batch["avail_actions"]
-        actions_onehot = batch["actions_onehot"]#[:, :-1]
+        actions_onehot = batch["actions_onehot"]
         next_actions_onehot = th.cat([actions_onehot[:,1:],th.zeros_like(actions_onehot[:, 0].unsqueeze(1))], dim=1)
 
         # Calculate estimated Q-Values
@@ -117,9 +114,9 @@ class EMCagent:
         mac_out_detach = mac_out.clone().detach()
         mac_out_detach[avail_actions == 0] = -9999999
         cur_max_actions = mac_out_detach.max(dim=3, keepdim=True)[1]
-        # 시점 맞추기 위한 dummy Tensor 추가
+        # add dummy Tensor to match the same dimension
         dummy_action = th.zeros_like(cur_max_actions[:,0].unsqueeze(1)).long()
-        next_max_actions = th.cat([cur_max_actions[:,1:], dummy_action], dim=1) ## 이걸 사용용
+        next_max_actions = th.cat([cur_max_actions[:,1:], dummy_action], dim=1) 
         target_chosen_qvals = th.gather(target_mac_out, 3, next_max_actions.long()).squeeze(3)
         target_max_qvals = target_mac_out.max(dim=3)[0]
         target_next_actions = cur_max_actions.detach()
@@ -135,28 +132,6 @@ class EMCagent:
         target_chosen, _, _ = self.target_mixer(target_chosen_qvals, batch["state_next"], is_v=True)
         target_adv, _, _ = self.target_mixer(target_chosen_qvals, batch["state_next"],actions=next_max_actions_onehot,max_q_i=target_max_qvals, is_v=False)
         target_max_qvals = target_chosen + target_adv
-
-        # Calculate 1-step Q-Learning targets
-        if self.args.use_emdqn:
-            ec_buffer.update_counter += 1
-            qec_input = chosen_action_qvals.clone().detach()
-            qec_input_new = []
-            for i in range(self.args.batch_size):
-                qec_tmp = qec_input[i, :]
-                for j in range(1, batch.max_seq_length):
-                    if not mask[i, j - 1]:
-                        continue
-                    z = np.dot(ec_buffer.random_projection, batch["state"][i][j].cpu())
-                    q = ec_buffer.peek(z, None, modify=False)
-                    if q != None:
-                        qec_tmp[j - 1] = self.args.gamma * q + rewards[i][j - 1]
-                        ec_buffer.qecwatch.append(q)
-                        ec_buffer.qec_found += 1
-                qec_input_new.append(qec_tmp)
-            qec_input_new = th.stack(qec_input_new, dim=0)
-            # print("qec_mean:", np.mean(ec_buffer.qecwatch))
-            episodic_q_hit_pro = 1.0 * ec_buffer.qec_found / self.args.batch_size / ec_buffer.update_counter / batch.max_seq_length
-            # print("qec_fount: %.2f" % episodic_q_hit_pro)
 
         targets = intrinsic_rewards+rewards + self.args.gamma * (1 - terminated) * target_max_qvals
         # Td-error
@@ -175,24 +150,6 @@ class EMCagent:
         grad_norm = th.nn.utils.clip_grad_norm_(params, self.args.grad_norm_clip)
         optimiser.step()
 
-#        if t_env - self.log_stats_t >= self.args.learner_log_interval:
-#            self.logger.log_stat("loss", loss.item(), t_env)
-#            self.logger.log_stat("hit_prob", hit_prob.item(), t_env)
-#            self.logger.log_stat("grad_norm", grad_norm, t_env)
-#            mask_elems = mask.sum().item()
-#            if self.args.use_emdqn:
-#                self.logger.log_stat("e_m Q mean", (qec_input_new * mask).sum().item() /
-#                                     (mask_elems * self.args.n_agents), t_env)
-#                self.logger.log_stat("em_ Q hit probability", episodic_q_hit_pro, t_env)
-#                self.logger.log_stat("emdqn_loss", emdqn_loss.item(), t_env)
-#                self.logger.log_stat("emdqn_curr_capacity", ec_buffer.ec_buffer.curr_capacity, t_env)
-#                self.logger.log_stat("emdqn_weight", self.args.emdqn_loss_weight, t_env)
-#            self.logger.log_stat("td_error_abs", (masked_td_error.abs().sum().item() / mask_elems), t_env)
-#            self.logger.log_stat("q_taken_mean",
-#                                 (chosen_action_qvals * mask).sum().item() / (mask_elems * self.args.n_agents), t_env)
-#            self.logger.log_stat("target_mean", (targets * mask).sum().item() / (mask_elems * self.args.n_agents),
-#                                 t_env)
-#            self.log_stats_t = t_env
         learn_scheme = {
             "loss":loss.item(),
             "vdn_loss":vdn_loss,
@@ -209,9 +166,7 @@ class EMCagent:
         scheme["hit_prob"].append(learn_scheme["hit_prob"])
         scheme["intrinsic_rewards"].append(learn_scheme["intrinsic_rewards"])
 
-    def _update_targets(self,ec_buffer):
-        if self.args.use_emdqn:
-            ec_buffer.update_kdtree()
+    def _update_targets(self):
         self.target_mac.load_state_dict(self.mac.state_dict())
         self.target_mixer.load_state_dict(self.mixer.state_dict())
         print("EMC Updated target network")
@@ -272,9 +227,7 @@ class EMCagent:
             self.writer.add_scalar("model/hit_prob", mean_hit_prob, episode)
             scheme["EpisodeInfo"].clear()
             scheme["EpisodeInfo"]["losses"], scheme["EpisodeInfo"]["vdn_losses"], scheme["EpisodeInfo"]["hit_prob"], scheme["EpisodeInfo"]["td_error_abs"], scheme["EpisodeInfo"]["intrinsic_rewards"] = [], [], [], [], []
-            # for i in range(0, self.num_agents):
-            #     for epstep in range(0, scheme["EpisodeInfo"]["r_in_list"][i].shape[0]):
-            #         self.writer.add_scalar(f"reward_intrinsic/{i+1}", scheme["EpisodeInfo"]["r_in_list"][i][epstep], startStep+epstep)
+
         else:
             print(" ")
             print(f"TestStep {step - ENVargs.run_step} team{team} ({self.algorithm}) Summary ({total_episode} step / {step} step)")

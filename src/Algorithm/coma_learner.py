@@ -7,7 +7,6 @@ from modules.Critic.COMAcritic import COMAcritic
 from Utils.calculate_pi import decentralized_pi
 from datetime import datetime
 
-# MAPOCAAgent 클래스 -> MAPOCA 알고리즘을 위한 다양한 함수 정의 
 class COMAagent:
     def __init__(self, args, actor, epsilon, save_path, load_path):  
         self.algorithm = "coma"
@@ -31,7 +30,6 @@ class COMAagent:
         self.critic = COMAcritic(args).to(self.device)
         self.target_critic = copy.deepcopy(self.critic)   
 
-        #self.actor = RNNActor(args)
         self.actor = actor
         self.actor_params = self.actor.parameters()
         self.critic_params = self.critic.parameters()
@@ -52,19 +50,16 @@ class COMAagent:
             self.critic_optimiser.load_state_dict(checkpoint["critic_optimizer"])
             print(f"... Load Model from {self.load_path}/ckpt complete ...")
 
-    # 리플레이 메모리에 데이터 추가 (상태, 행동, 그룹보상, 개인보상, 게임 종료 여부, 에이전트 활성 여부)
     def append_sample(self, states, obs, actions, actionmask, Reward, done, actives):
             self.memory.append((states, obs, actions, actionmask, Reward, done, actives))
 
     def memoryClear(self):
         self.memory.clear()
              
-    # 학습 수행
     def train_model(self):
         self.actor.train()
         self.critic.train()
-
-        # 메모리에서 필요한 인자 받아오기
+        # extract episode data from memory
         states      = np.stack([m[0] for m in self.memory], axis=0)
         obs         = np.stack([m[1] for m in self.memory], axis=0)
         actions     = np.stack([m[2] for m in self.memory], axis=0)
@@ -79,10 +74,10 @@ class COMAagent:
         # (sequence_length, num_agent, value)
         torch.autograd.set_detect_anomaly(True)
         
-        # 1. critic-loss 계산
+        # 1. calculate critic-loss
         q_vals, target = self.train_critic(states, obs, actions, Reward, done)
         
-        # 2. actor-loss 계산 (decentralized)
+        # 2. caluclate actor-loss
         actor_loss = self.train_actor(obs, actions, actionmask, actives, q_vals, target)   
 
         critic_losses = []
@@ -114,7 +109,7 @@ class COMAagent:
         target_taken = target_q_vals.gather(dim=-1, index=action.long()).squeeze(-1)
         with torch.no_grad():
             ret = torch.zeros(target_taken.shape[0]+1, target_taken.shape[1]).to(self.device) # [bs, n_agents]
-            ret[-1] = target_taken[-1] * (1 - torch.sum(done, dim=0).view(-1)) # 마지막 값만 설정(=0)
+            ret[-1] = target_taken[-1] * (1 - torch.sum(done, dim=0).view(-1)) # set last value as 0
             # Backwards  recursive  update  of the "forward  view"
             for t in reversed(range(ret.shape[0]-2)):  
                 ret[t] = self.td_lambda*self.gamma*ret[t+1] + Reward[t] + (1-self.td_lambda)*self.gamma*target_taken[t]*(1-done[t])
@@ -134,30 +129,26 @@ class COMAagent:
         self.actor.flattenParameters()
         hidden_state = self.actor.init_hidden()
         pi, _ = self.actor.forward(obs, hidden_state) # dhstate : (sq_length, value)
-        if self.args.train_mode: # Epsilon-greedy exploration 적용
+        if self.args.train_mode: # Epsilon-greedy exploration
             epsilon_action_num = pi.size(-1)
             pi = (1-self.epsilon)*pi + actionmask*(self.epsilon/epsilon_action_num)
         masked_pi = pi * actionmask
 
         sum_masked = masked_pi.sum(dim=-1, keepdim=True)
-        masked_pi = torch.where(sum_masked == 0, torch.ones_like(sum_masked), masked_pi)  # 분모가 0이면 uniform 값 사용
+        masked_pi = torch.where(sum_masked == 0, torch.ones_like(sum_masked), masked_pi)
         pi = masked_pi / masked_pi.sum(dim=-1, keepdim=True)
-        # 여기까지 decentralized_pi의 pi 계산 부분
-        # ## pi = pi.view(-1, self.n_actions)
-        # ## action = actions.reshape(-1,1)
+
         pi_taken = torch.gather(pi, dim=-1, index=actions.long())
-        pi_active = pi_taken * actives + (1-actives) # 비활성화 상태일 때 학습에 영향 X
+        pi_active = pi_taken * actives + (1-actives) # only active agents affect to train
         log_pi_taken = torch.log(pi_active)
         
-        # ## q_vals = q_vals.reshape(-1, self.n_actions)
         baseline = (pi*q_vals).sum(-1).detach()
         q_taken = torch.gather(q_vals, dim=-1, index=actions.long()).squeeze(-1)
 
         # 2.2 calculate advantage
         advantage = (q_taken - baseline).detach()
-        # print(f"advantage : {advantage.shape} | log_pi_taken : {log_pi_taken.shape}")
         coma_loss = - (advantage * log_pi_taken.squeeze(-1)).mean()
-        # 2.3 calculate liir-loss
+        
         self.actor_optimiser.zero_grad()
         coma_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor_params, self.grad_norm_clip)
@@ -167,7 +158,7 @@ class COMAagent:
 
         return coma_loss_
     
-    # 학습 기록
+    # write train summary
     def write_scheme(self, scheme, learn_scheme, args):
         scheme["critic_losses"].append(np.mean(learn_scheme["critic_loss"]))
         scheme["actor_losses"].append(learn_scheme["actor_loss"])
@@ -190,7 +181,7 @@ class COMAagent:
             print(" ")
             self.writer.add_scalar("reward/score", total_reward, episode)
             self.writer.add_scalar("episode/episode_length", np.mean(ep_length), episode)
-            #self.writer.add_scalar("reward/reward_mean", np.mean(mean_agent_reward), step)
+            
             self.writer.add_scalar("episode/win_rate", 100*win_rate, episode)
             self.writer.add_scalar("model/critic_loss", mean_critic_loss, episode)
             self.writer.add_scalar("model/actor_loss", mean_actor_loss, episode)
@@ -207,7 +198,6 @@ class COMAagent:
 
         scheme["EpisodeInfo"]["episode_length"], scheme["EpisodeInfo"]["scores"] = [], []
         
-    # 네트워크 모델 저장
     def save_model(self):
         print(f"... Save Model to {self.save_path}/ckpt ...")
         obj = {}

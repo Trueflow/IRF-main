@@ -1,10 +1,9 @@
-# liir Critic (https://github.com/yalidu/liir/blob/master/src/modules/critics/liir.py)
 import torch
 import torch.nn
 import torch.nn.functional as F
-class LIIRcritic(torch.nn.Module):
+class IRFcritic(torch.nn.Module):
     def __init__(self, args):
-        super(LIIRcritic, self).__init__()
+        super(IRFcritic, self).__init__()
         self.args = args
         self.state_size = args.state_size
         self.obs_size = args.obs_size
@@ -41,8 +40,6 @@ class LIIRcritic(torch.nn.Module):
 
     def build_input_Critic(self, states, obs, actions, t=None, onehot=True):
         torch.autograd.set_detect_anomaly(True)
-        # goal : HRL Lower agent
-        # 원본에선 4차원으로 반복. dim=1 sequence length
         # bs = self.batch_size # batch_size 
         max_t = actions.shape[0] if t is None else 1
         inputs=[]
@@ -55,7 +52,7 @@ class LIIRcritic(torch.nn.Module):
         agent_mask = (1 - torch.eye(self.n_agents, device=self.device))
         agent_mask = agent_mask.view(-1,1).repeat(1,self.n_actions).view(self.n_agents,-1)
         action_input = action_input.view(max_t, 1, -1).repeat(1,self.n_agents,1)
-        # print(f"action : {action_input.shape} | agent_mask : {agent_mask.shape}")
+        
         inputs.append(action_input * agent_mask.unsqueeze(0))
         if t == 0:
             inputs.append(torch.zeros_like(onehot_actions[0:1]).view(max_t, 1, -1).repeat(1,self.n_agents,1))
@@ -69,7 +66,6 @@ class LIIRcritic(torch.nn.Module):
         critic_input = torch.cat([x.reshape(max_t, self.n_agents, -1) for x in inputs], dim=-1)
         del action_input, onehot_actions, agent_mask
         return critic_input
-    # state (seq, n-agents, state_size), action (seq, n_agents, action_size * num_agents)
         
     def create_input_size(self, onehot=True):
         act_size = self.n_actions * self.n_agents * 2 if onehot else 1

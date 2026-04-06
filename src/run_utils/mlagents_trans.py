@@ -8,7 +8,6 @@ def process_state(obs, args):
 def process_obs(obs, args):
     ray_obs = obs[args.RAY_IDX]
     vec_obs = obs[args.VEC_IDX][:,:args.vec_obs]
-    # print(f"ray_obs: {ray_obs.shape}, vec_obs: {vec_obs.shape}")
     return np.concatenate((ray_obs, vec_obs), axis=-1)
 
 def process_actionmask(obs, args):
@@ -28,15 +27,13 @@ def set_action(actions, env, behavior):
 
 def process_rewards(dec, term, done):
     if not done:
-        # reward = dec.reward + dec.group_reward 개인보상 포함이면 list로 나가자
         reward = dec.group_reward
         return np.mean(reward), np.mean(reward)
     else:
-        # reward = term.reward + term.group_reward
         reward = term.group_reward
         return np.mean(reward), np.mean(reward)
   
-def process_next_state(dec, term, args): # for MA-POCA
+def process_next_state(dec, term, args): # for MA-POCA, CDS, EMC
     if len(term.agent_id)!=0:
         obs = term.obs
     else:
