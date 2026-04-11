@@ -1,5 +1,4 @@
 ﻿from modules.Actor import REGISTRY as mac_registry
-#from modules.Actor.RNNActor import RNNActor
 from EnvSetting.TeamInfo import WriteSchemeInfo, SCHEMA_REGISTRY
 from Algorithm import REGISTRY as A_Registry
 from Utils.epsilon_schedule import epsilon_schedule

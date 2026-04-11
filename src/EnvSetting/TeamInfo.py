@@ -70,15 +70,6 @@ def create_coma_scheme(args, team):
     }
     return {"EpisodeInfo": episode_info}
 
-def create_poca_scheme(args, team):
-    episode_info = {
-        "scores": [],
-        "actor_losses": [],
-        "critic_losses": [], 
-        "episode_length": []
-    }
-    return {"EpisodeInfo": episode_info}
-
 def create_cds_scheme(args, team):
     episode_info = {
         "scores": [],
@@ -88,27 +79,13 @@ def create_cds_scheme(args, team):
         "intrinsic_rewards":[],
         "episode_length": []
     }
-    return {"EpisodeInfo": episode_info}
-
-def create_emc_scheme(args, team):
-    episode_info = {
-        "scores": [],
-        "losses":[],
-        "vdn_losses":[],
-        "td_error_abs":[],
-        "hit_prob":[],
-        "intrinsic_rewards":[],
-        "episode_length": []
-    }
-    return {"EpisodeInfo": episode_info}    
+    return {"EpisodeInfo": episode_info}  
 
 SCHEMA_REGISTRY = {}
 # 레지스트리에 함수 등록
 SCHEMA_REGISTRY["irf"] = create_irf_scheme
 SCHEMA_REGISTRY["coma"] = create_coma_scheme
-SCHEMA_REGISTRY["poca"] = create_poca_scheme
 SCHEMA_REGISTRY["cds"] = create_cds_scheme
-SCHEMA_REGISTRY["emc"] = create_emc_scheme
     
 def WriteSchemeInfo(algorithm, args, team):
     write_scheme = { "score": [], "episode": 0, "done": False, "team": team }
